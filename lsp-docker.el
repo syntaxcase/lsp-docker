@@ -40,6 +40,11 @@
   :type 'string
   :group 'lsp-docker)
 
+(defun lsp--docker-ensure-name (name)
+  (if (functionp name)
+      (funcall name)
+    name))
+
 (defun lsp-docker--uri->path (path-mappings docker-container-name uri)
   "Turn docker URI into host path.
 Argument PATH-MAPPINGS dotted pair of (host-path . container-path).
@@ -50,7 +55,7 @@ Argument URI the uri to translate."
                                          (s-contains? docker-path path))
                                        path-mappings))
         (s-replace remote local path)
-      (format "/docker:%s:%s" docker-container-name path))))
+      (format "/docker:%s:%s" (lsp--docker-ensure-name docker-container-name) path))))
 
 (defun lsp-docker--path->uri (path-mappings path)
   "Turn host PATH into docker uri.
@@ -77,14 +82,13 @@ Argument SERVER-COMMAND the language server command to run inside the container.
   (split-string
    (--doto (format "%s run --name %s-%d --rm -i %s %s %s"
                    lsp-docker-executable
-		   docker-container-name
-		   lsp-docker-container-name-suffix
-		   (->> path-mappings
-			(-map (-lambda ((path . docker-path))
-				(format "-v %s:%s" path docker-path)))
-			(s-join " "))
-		   docker-image-id
-		   server-command))
+                   (lsp--docker-ensure-name (format "%s-%d" docker-container-name lsp-docker-container-name-suffix))
+                   (->> path-mappings
+                        (-map (-lambda ((path . docker-path))
+                                (format "-v %s:%s" path docker-path)))
+                        (s-join " "))
+                   (lsp--docker-ensure-name docker-image-id)
+                   server-command))
    " "))
 
 (defun lsp-docker-exec-in-container (docker-container-name path-mappings docker-image-id server-command)
@@ -92,7 +96,7 @@ Argument SERVER-COMMAND the language server command to run inside the container.
 Argument DOCKER-CONTAINER-NAME name of container to exec into.
 Argument SERVER-COMMAND the command to execute inside the running container."
   (split-string
-   (format "%s exec -i %s %s" lsp-docker-executable docker-container-name server-command)))
+   (format "%s exec -i %s %s" lsp-docker-executable (lsp--docker-ensure-name docker-container-name) server-command)))
 
 (cl-defun lsp-docker-register-client (&key server-id
                                            docker-server-id
