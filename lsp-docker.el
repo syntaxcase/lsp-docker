@@ -30,6 +30,16 @@
 (require 'lsp-mode)
 (require 'dash)
 
+(defgroup lsp-docker nil
+  "lsp-docker"
+  :group 'tools
+  :tag "Docker Language Server")
+
+(defcustom lsp-docker-executable "docker"
+  "The path to a docker-compatible executable"
+  :type 'string
+  :group 'lsp-docker)
+
 (defun lsp-docker--uri->path (path-mappings docker-container-name uri)
   "Turn docker URI into host path.
 Argument PATH-MAPPINGS dotted pair of (host-path . container-path).
@@ -65,7 +75,8 @@ Argument DOCKER-IMAGE-ID the docker container to run language servers with.
 Argument SERVER-COMMAND the language server command to run inside the container."
   (cl-incf lsp-docker-container-name-suffix)
   (split-string
-   (--doto (format "docker run --name %s-%d --rm -i %s %s %s"
+   (--doto (format "%s run --name %s-%d --rm -i %s %s %s"
+                   lsp-docker-executable
 		   docker-container-name
 		   lsp-docker-container-name-suffix
 		   (->> path-mappings
@@ -76,12 +87,12 @@ Argument SERVER-COMMAND the language server command to run inside the container.
 		   server-command))
    " "))
 
-(defun lsp-docker-exec-in-container (docker-container-name server-command)
+(defun lsp-docker-exec-in-container (docker-container-name path-mappings docker-image-id server-command)
   "Return command to exec into running container.
 Argument DOCKER-CONTAINER-NAME name of container to exec into.
 Argument SERVER-COMMAND the command to execute inside the running container."
-(split-string
-   (format "docker exec -i %s %s" docker-container-name server-command)))
+  (split-string
+   (format "%s exec -i %s %s" lsp-docker-executable docker-container-name server-command)))
 
 (cl-defun lsp-docker-register-client (&key server-id
                                            docker-server-id
