@@ -45,6 +45,11 @@
       (funcall name)
     name))
 
+(defun lsp--docker-maybe-funcall (x)
+  (if (functionp x)
+      (funcall x)
+    x))
+
 (defun lsp-docker--uri->path (path-mappings docker-container-name uri)
   "Turn docker URI into host path.
 Argument PATH-MAPPINGS dotted pair of (host-path . container-path).
@@ -52,9 +57,10 @@ Argument DOCKER-CONTAINER-NAME name to use when running container.
 Argument URI the uri to translate."
   (let ((path (lsp--uri-to-path-1 uri)))
     (-if-let ((local . remote) (-first (-lambda ((_ . docker-path))
-                                         (s-contains? docker-path path))
+                                         (s-contains? (lsp--docker-maybe-funcall docker-path)
+                                                      path))
                                        path-mappings))
-        (s-replace remote local path)
+        (s-replace (lsp--docker-maybe-funcall remote) (lsp--docker-maybe-funcall local) path)
       (format "/docker:%s:%s" (lsp--docker-ensure-name docker-container-name) path))))
 
 (defun lsp-docker--path->uri (path-mappings path)
@@ -63,10 +69,12 @@ Argument PATH-MAPPINGS dotted pair of (host-path . container-path).
 Argument PATH the path to translate."
   (lsp--path-to-uri-1
    (-if-let ((local . remote) (-first (-lambda ((local-path . _))
-                                        (s-contains? local-path path))
+                                        (unless (functionp local-path)
+                                          (s-contains? local-path path)))
                                       path-mappings))
        (s-replace local remote path)
-     (user-error "The path %s is not under path mappings" path))))
+     (-let (((local-fn . remote-fn) (car path-mappings)))
+       (s-replace (funcall local-fn) (funcall remote-fn) path)))))
 
 
 (defvar lsp-docker-container-name-suffix 0
@@ -85,7 +93,9 @@ Argument SERVER-COMMAND the language server command to run inside the container.
                    (lsp--docker-ensure-name (format "%s-%d" docker-container-name lsp-docker-container-name-suffix))
                    (->> path-mappings
                         (-map (-lambda ((path . docker-path))
-                                (format "-v %s:%s" path docker-path)))
+                                (format "-v %s:%s"
+                                        (lsp--docker-maybe-funcall path)
+                                        (lsp--docker-maybe-funcall docker-path))))
                         (s-join " "))
                    (lsp--docker-ensure-name docker-image-id)
                    server-command))
@@ -101,34 +111,44 @@ Argument SERVER-COMMAND the command to execute inside the running container."
 (cl-defun lsp-docker-register-client (&key server-id
                                            docker-server-id
                                            path-mappings
+                                           default-path-mappings
                                            docker-image-id
                                            docker-container-name
                                            priority
                                            server-command
                                            launch-server-cmd-fn)
   "Registers docker clients with lsp"
+  (when (and (not path-mappings) (not default-path-mappings))
+    (error "one of `:path-mappings' or `:default-path-mappings' must be specified"))
+
   (if-let ((client (copy-lsp--client (gethash server-id lsp-clients))))
-      (progn
-        (setf (lsp--client-server-id client) docker-server-id
-              (lsp--client-uri->path-fn client) (-partial #'lsp-docker--uri->path
-                                                          path-mappings
-                                                          docker-container-name)
-              (lsp--client-path->uri-fn client) (-partial #'lsp-docker--path->uri path-mappings)
-              (lsp--client-new-connection client) (plist-put
-                                                   (lsp-stdio-connection
-                                                    (lambda ()
-                                                      (funcall (or launch-server-cmd-fn #'lsp-docker-launch-new-container)
-                                                               docker-container-name
-                                                               path-mappings
-                                                               docker-image-id
-                                                               server-command)))
-                                                   :test? (lambda (&rest _)
-                                                            (-any?
-                                                             (-lambda ((dir))
-                                                               (f-ancestor-of? dir (buffer-file-name)))
-                                                             path-mappings)))
-              (lsp--client-priority client) (or priority (lsp--client-priority client)))
-        (lsp-register-client client))
+      (let ((path-mappings (if default-path-mappings
+                               (cons default-path-mappings path-mappings)
+                             path-mappings)))
+        (progn
+          (setf (lsp--client-server-id client) docker-server-id
+                (lsp--client-uri->path-fn client) (-partial #'lsp-docker--uri->path
+                                                            path-mappings
+                                                            docker-container-name)
+                (lsp--client-path->uri-fn client) (-partial #'lsp-docker--path->uri path-mappings)
+                (lsp--client-new-connection client) (plist-put
+                                                     (lsp-stdio-connection
+                                                      (lambda ()
+                                                        (funcall (or launch-server-cmd-fn #'lsp-docker-launch-new-container)
+                                                                 docker-container-name
+                                                                 path-mappings
+                                                                 docker-image-id
+                                                                 server-command)))
+                                                     :test? (lambda (&rest _)
+                                                              (-any?
+                                                               (-lambda ((dir))
+                                                                 (let ((dir (if (functionp dir)
+                                                                                (funcall dir)
+                                                                              dir)))
+                                                                   (f-ancestor-of? dir (buffer-file-name))))
+                                                               path-mappings)))
+                (lsp--client-priority client) (or priority (lsp--client-priority client)))
+          (lsp-register-client client)))
     (user-error "No such client %s" server-id)))
 
 (defvar lsp-docker-default-client-packages
