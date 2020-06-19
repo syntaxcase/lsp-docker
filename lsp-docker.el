@@ -40,12 +40,7 @@
   :type 'string
   :group 'lsp-docker)
 
-(defun lsp--docker-ensure-name (name)
-  (if (functionp name)
-      (funcall name)
-    name))
-
-(defun lsp--docker-maybe-funcall (x)
+(defun lsp-docker--maybe-funcall (x)
   (if (functionp x)
       (funcall x)
     x))
@@ -57,11 +52,11 @@ Argument DOCKER-CONTAINER-NAME name to use when running container.
 Argument URI the uri to translate."
   (let ((path (lsp--uri-to-path-1 uri)))
     (-if-let ((local . remote) (-first (-lambda ((_ . docker-path))
-                                         (s-contains? (lsp--docker-maybe-funcall docker-path)
+                                         (s-contains? (lsp-docker--maybe-funcall docker-path)
                                                       path))
                                        path-mappings))
-        (s-replace (lsp--docker-maybe-funcall remote) (lsp--docker-maybe-funcall local) path)
-      (format "/docker:%s:%s" (lsp--docker-ensure-name docker-container-name) path))))
+        (s-replace (lsp-docker--maybe-funcall remote) (lsp-docker--maybe-funcall local) path)
+      (format "/docker:%s:%s" (lsp-docker--maybe-funcall docker-container-name) path))))
 
 (defun lsp-docker--path->uri (path-mappings path)
   "Turn host PATH into docker uri.
@@ -90,14 +85,15 @@ Argument SERVER-COMMAND the language server command to run inside the container.
   (split-string
    (--doto (format "%s run --name %s-%d --rm -i %s %s %s"
                    lsp-docker-executable
-                   (lsp--docker-ensure-name (format "%s-%d" docker-container-name lsp-docker-container-name-suffix))
+                   docker-container-name
+                   lsp-docker-container-name-suffix
                    (->> path-mappings
                         (-map (-lambda ((path . docker-path))
                                 (format "-v %s:%s"
-                                        (lsp--docker-maybe-funcall path)
-                                        (lsp--docker-maybe-funcall docker-path))))
+                                        (lsp-docker--maybe-funcall path)
+                                        (lsp-docker--maybe-funcall docker-path))))
                         (s-join " "))
-                   (lsp--docker-ensure-name docker-image-id)
+                   (lsp-docker--maybe-funcall docker-image-id)
                    server-command))
    " "))
 
@@ -106,7 +102,7 @@ Argument SERVER-COMMAND the language server command to run inside the container.
 Argument DOCKER-CONTAINER-NAME name of container to exec into.
 Argument SERVER-COMMAND the command to execute inside the running container."
   (split-string
-   (format "%s exec -i %s %s" lsp-docker-executable (lsp--docker-ensure-name docker-container-name) server-command)))
+   (format "%s exec -i %s %s" lsp-docker-executable (lsp-docker--maybe-funcall docker-container-name) server-command)))
 
 (cl-defun lsp-docker-register-client (&key server-id
                                            docker-server-id
