@@ -165,15 +165,14 @@ Argument SERVER-COMMAND the command to execute inside the running container."
   "Default list of client configurations.")
 
 (cl-defun lsp-docker-init-clients (&key
-					path-mappings
-					(docker-image-id "emacslsp/lsp-docker-langservers")
-					(docker-container-name "lsp-container")
-					(priority 10)
-					(client-packages lsp-docker-default-client-packages)
-					(client-configs lsp-docker-default-client-configs))
+				   path-mappings
+                                   default-path-mappings
+				   (priority 10)
+				   (client-packages lsp-docker-default-client-packages)
+				   (client-configs lsp-docker-default-client-configs))
   "Loads the required client packages and registers the required clients to run with docker."
   (seq-do (lambda (package) (require package nil t)) client-packages)
-  (seq-do (-lambda ((&plist :server-id :docker-server-id :server-command))
+  (seq-do (-lambda ((&plist :server-id :docker-server-id :server-command :docker-image-id :docker-container-name :launch-server-cmd-fn))
 	    (lsp-docker-register-client
 	     :server-id server-id
 	     :priority priority
@@ -182,7 +181,8 @@ Argument SERVER-COMMAND the command to execute inside the running container."
 	     :docker-container-name docker-container-name
 	     :server-command server-command
 	     :path-mappings path-mappings
-	     :launch-server-cmd-fn #'lsp-docker-launch-new-container))
+             :default-path-mappings default-path-mappings
+	     :launch-server-cmd-fn (if launch-server-cmd-fn launch-server-cmd-fn #'lsp-docker-launch-new-container)))
 	  client-configs))
 
 (provide 'lsp-docker)
